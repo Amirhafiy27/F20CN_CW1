@@ -9,7 +9,7 @@ import pickle
 import os
 
 
-RULES_FILE = "firewall_rules.dat"
+RULES_FILE = "firewall_rules.txt"
 
 
 class FirewallRule:
@@ -36,17 +36,40 @@ class FirewallManager:
         """Load rules from file."""
         if os.path.exists(RULES_FILE):
             try:
-                with open(RULES_FILE, 'rb') as f:
-                    self.rules = pickle.load(f)
-            except:
+                # Try reading as a text file with one rule per line:
+                # format: rule_number|direction|address
+                rules = []
+                with open(RULES_FILE, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        parts = line.split('|')
+                        if len(parts) != 3:
+                            continue
+                        try:
+                            rn = int(parts[0])
+                        except:
+                            continue
+                        direction = parts[1]
+                        address = parts[2]
+                        rules.append(FirewallRule(rn, direction, address))
+                self.rules = rules
+            except Exception:
+                # If text reading fails for any reason, fall back to an empty list
                 self.rules = []
     
     def save_rules(self):
         """Save rules to file."""
         try:
-            with open(RULES_FILE, 'wb') as f:
-                pickle.dump(self.rules, f)
-        except:
+            # Save in a simple text format: one rule per line
+            # rule_number|direction|address
+            with open(RULES_FILE, 'w', encoding='utf-8') as f:
+                for r in self.rules:
+                    line = f"{r.rule_number}|{r.direction}|{r.address}\n"
+                    f.write(line)
+        except Exception:
+            # Ignore save errors to preserve original behaviour
             pass
     
     def add_rule(self, rule_number, direction, address):

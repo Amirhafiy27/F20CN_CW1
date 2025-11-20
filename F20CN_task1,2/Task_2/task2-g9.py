@@ -4,7 +4,6 @@ import sys
 import re
 import os
 
-
 RULES_FILE = "firewall_rules.txt"
 
 # Represents a firewall rule
@@ -48,7 +47,7 @@ class FirewallManager:
                         rules.append(FirewallRule(rn, direction, address))
                 self.rules = rules
             except Exception:
-                # If text reading fails for any reason, fall back to an empty list
+                # If text reading fails, fall back to an empty list
                 self.rules = []
     
     # save rules to file

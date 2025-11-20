@@ -1,20 +1,14 @@
-"""
-Firewall Rules Management System - Command Line Version
-Task 2: Computer Network Security
-"""
+# Task 2: Computer Network Security
 
 import sys
 import re
-import pickle
 import os
 
 
 RULES_FILE = "firewall_rules.txt"
 
-
+# Represents a firewall rule
 class FirewallRule:
-    """Represents a firewall rule."""
-    
     def __init__(self, rule_number, direction, address):
         self.rule_number = rule_number
         self.direction = direction
@@ -24,19 +18,17 @@ class FirewallRule:
         dir_str = self.direction if self.direction != "both" else "in/out"
         return f"Rule {self.rule_number}: {dir_str} {self.address}"
 
-
+# Manage firewall rules
 class FirewallManager:
-    """Manages firewall rules."""
-    
     def __init__(self):
         self.rules = []
         self.load_rules()
     
+    # load rules from file
     def load_rules(self):
-        """Load rules from file."""
         if os.path.exists(RULES_FILE):
             try:
-                # Try reading as a text file with one rule per line:
+                # Reading text file with one rule per line:
                 # format: rule_number|direction|address
                 rules = []
                 with open(RULES_FILE, 'r', encoding='utf-8') as f:
@@ -59,21 +51,20 @@ class FirewallManager:
                 # If text reading fails for any reason, fall back to an empty list
                 self.rules = []
     
+    # save rules to file
     def save_rules(self):
-        """Save rules to file."""
         try:
-            # Save in a simple text format: one rule per line
-            # rule_number|direction|address
+            # Save one rule per line
+            # format: rule_number|direction|address
             with open(RULES_FILE, 'w', encoding='utf-8') as f:
                 for r in self.rules:
                     line = f"{r.rule_number}|{r.direction}|{r.address}\n"
                     f.write(line)
         except Exception:
-            # Ignore save errors to preserve original behaviour
             pass
     
+    # Add a new rule
     def add_rule(self, rule_number, direction, address):
-        """Add a new rule."""
         if rule_number is None:
             rule_number = 1
         if direction is None:
@@ -97,8 +88,8 @@ class FirewallManager:
         
         self.save_rules()
     
+    # Remove a rule
     def remove_rule(self, rule_number, direction):
-        """Remove a rule."""
         # Find rule
         rule_index = None
         for i, rule in enumerate(self.rules):
@@ -137,8 +128,8 @@ class FirewallManager:
         
         print(f"Error: Rule {rule_number} does not have {direction} direction")
     
+    # List rules with optional filters
     def list_rules(self, rule_number=None, direction=None, address=None):
-        """List rules with optional filters."""
         if not self.rules:
             print("No firewall rules configured")
             return
@@ -163,20 +154,20 @@ class FirewallManager:
         for rule in matching:
             print(rule)
     
+    # Check if rule matches direction filter.
     def _matches_direction(self, rule, direction):
-        """Check if rule matches direction filter."""
         if rule.direction == "both":
             return True
         return rule.direction == direction
     
+    # Check if address overlaps with rule.
     def _matches_address(self, rule, address):
-        """Check if address overlaps with rule."""
         start1, end1 = self._parse_range(rule.address)
         start2, end2 = self._parse_range(address)
         return not (end1 < start2 or start1 > end2)
     
+    # Parse address into start and end integers.
     def _parse_range(self, addr):
-        """Parse address into start and end integers."""
         if '-' in addr:
             start, end = addr.split('-')
             return self._ip_to_int(start), self._ip_to_int(end)
@@ -184,14 +175,13 @@ class FirewallManager:
             ip_int = self._ip_to_int(addr)
             return ip_int, ip_int
     
+    # Convert IP address to integer.
     def _ip_to_int(self, ip):
-        """Convert IP to integer."""
         parts = ip.split('.')
         return (int(parts[0]) << 24) + (int(parts[1]) << 16) + (int(parts[2]) << 8) + int(parts[3])
 
-
+# Validate IPv4 address (10.0.0.0-10.0.0.255).
 def validate_ip(ip):
-    """Validate IP address (10.0.0.0-10.0.0.255)."""
     pattern = r'^10\.0\.0\.(\d{1,3})$'
     match = re.match(pattern, ip)
     if not match:
@@ -199,9 +189,8 @@ def validate_ip(ip):
     last_octet = int(match.group(1))
     return 0 <= last_octet <= 255
 
-
+# Parse and validate address or range.
 def parse_address(addr_str):
-    """Parse and validate address or range."""
     if '-' in addr_str:
         parts = addr_str.split('-')
         if len(parts) != 2:
@@ -226,9 +215,8 @@ def parse_address(addr_str):
             raise ValueError(f"Invalid IP address: {addr}")
         return addr
 
-
+# Parse command line arguments.
 def parse_command(args):
-    """Parse command line arguments."""
     if len(args) == 0:
         raise ValueError("No command specified")
     
@@ -285,7 +273,6 @@ manager = FirewallManager()
 
 
 def main():
-    """Main entry point."""
     global manager
     
     if len(sys.argv) == 1:

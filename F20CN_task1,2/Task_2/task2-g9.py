@@ -4,7 +4,6 @@ import sys
 import re
 import os
 
-
 RULES_FILE = "firewall_rules.txt"
 
 # Represents a firewall rule

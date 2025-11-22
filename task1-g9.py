@@ -2,14 +2,13 @@ import random
 import math
 import sys
 
-# --- Configuration Constants (Updated for 64 bits) ---
-N_BITS = 64 # The length of the Easy Key (e) and the message (m) in bits.
-KEY_RANGE_START = 2**20 # Starting size for the first easy key element (to ensure large numbers)
+#Configuration Constants
+N_BITS = 64
+KEY_RANGE_START = 2**20
 
-# --- Utility Functions ---
+#Utility Functions
 
 def extended_gcd(a, b):
-    """Computes gcd(a, b) and returns a tuple (gcd, x, y) such that a*x + b*y = gcd."""
     if a == 0:
         return b, 0, 1
     gcd, x1, y1 = extended_gcd(b % a, a)
@@ -18,224 +17,396 @@ def extended_gcd(a, b):
     return gcd, x, y
 
 def modular_inverse(w, q):
-    """Computes w^-1 mod q using the Extended Euclidean Algorithm."""
     gcd, x, y = extended_gcd(w, q)
     if gcd != 1:
         raise Exception(f'Modular inverse does not exist for w={w} and q={q}.')
     return x % q
 
-def generate_large_prime(min_val):
-    """Generates a large prime number greater than min_val."""
-    def is_prime(n, k=10):
-        if n <= 1 or n == 4: return False
-        if n <= 3: return True
-        # Simple primality test: check a few random bases
-        for _ in range(k):
-            a = random.randint(2, n - 2)
-            if pow(a, n - 1, n) != 1:
-                return False
+def is_prime_miller_rabin(n, k=10):
+    if n <= 1 or n == 4:
+        return False
+    if n <= 3:
         return True
+    if n % 2 == 0:
+        return False
+    r, d = 0, n - 1
+    while d % 2 == 0:
+        r += 1
+        d //= 2
+    for _ in range(k):
+        a = random.randint(2, n - 2)
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        for _ in range(r - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
 
+def generate_large_prime(min_val):
     p = min_val + 1 if min_val % 2 == 0 else min_val + 2
     while True:
-        if is_prime(p):
+        if is_prime_miller_rabin(p):
             return p
         p += 2
 
-# --- Message Encoding/Decoding Utilities ---
+#Message Encoding/Decoding
 
 def text_to_bits(text, n_bits=N_BITS):
-    """Converts a text message into a list of N_BITS length."""
-    # Convert characters to binary (8 bits per char)
     bit_string = ''.join(format(ord(char), '08b') for char in text)
-    
-    # Pad or truncate to ensure the required N_BITS length
     if len(bit_string) > n_bits:
         bit_list = [int(b) for b in bit_string[:n_bits]]
     else:
         padding = '0' * (n_bits - len(bit_string))
         bit_list = [int(b) for b in bit_string + padding]
-    
     return bit_list
 
 def bits_to_text(bit_list):
-    """Converts a list of bits back into a readable string."""
     text = ""
-    # Only iterate through full 8-bit chunks
     for i in range(0, len(bit_list) // 8 * 8, 8):
         byte = bit_list[i:i+8]
         byte_str = "".join(map(str, byte))
-        
-        # Convert 8-bit binary string to integer, then to character
         try:
             char_code = int(byte_str, 2)
             if char_code == 0:
-                # Stop decoding at padding zeros
                 break
-            char = chr(char_code)
-            text += char
+            text += chr(char_code)
         except ValueError:
-             # Skip or replace invalid characters
-             pass
-             
+            pass
     return text
 
-# --- Cryptography Functions (CORE LOGIC IMPLEMENTED) ---
+def split_text_into_blocks(text, block_size_chars=8):
+    blocks = []
+    for i in range(0, len(text), block_size_chars):
+        block = text[i:i+block_size_chars]
+        if len(block) < block_size_chars:
+            block = block + '\x00' * (block_size_chars - len(block))
+        blocks.append(block)
+    return blocks
+
+def blocks_to_text(blocks):
+    text = ''.join(blocks)
+    return text.rstrip('\x00')
+
+#Cryptography Functions
 
 def generate_key_pair(n=N_BITS):
-    """
-    Generates the public key h and the private key (e, q, w).
-    """
-    # 1. Generate Easy Key (e) - Super-increasing sequence.
     e = []
     current_sum = 0
-    
-    # Start the first element large to ensure q is very large
-    next_e = random.randint(KEY_RANGE_START, KEY_RANGE_START * 2) 
-    e.append(next_e)
-    current_sum = next_e
-
+    first_e = random.randint(KEY_RANGE_START, KEY_RANGE_START * 2)
+    e.append(first_e)
+    current_sum = first_e
     for _ in range(1, n):
-        # e_i must be > current_sum
-        # We add a random factor to current_sum to avoid a trivial sequence
-        next_e = current_sum + random.randint(1, current_sum // 10) 
+        next_e = current_sum + random.randint(current_sum // 10, current_sum // 5)
         e.append(next_e)
         current_sum += next_e
-    
     e_n = e[-1]
-    
-    # 2. Select Modulus (q) and Multiplier (w)
-    # q must be prime and q > 2 * e_n
     min_q = 2 * e_n + 1
-    q = generate_large_prime(min_q) 
-    
-    # w must be coprime to q (gcd(w, q) = 1). Since q is prime, any w such that 1 < w < q works.
+    q = generate_large_prime(min_q)
     w = random.randint(2, q - 1)
-    
-    # 3. Generate Hard Key (h)
-    h = []
-    # h_i = (w * e_i) mod q
-    for e_i in e:
-        h.append((w * e_i) % q)
-    
+    h = [(w * e_i) % q for e_i in e]
     private_key = {'e': e, 'q': q, 'w': w}
     public_key = h
-    
     return public_key, private_key
 
-
-def encrypt(message_bits, public_key_h):
-    """
-    Encrypts an n-bit message m using the public key h.
-    c = sum(h_i * m_i)
-    """
+def encrypt_block(message_bits, public_key_h):
     if len(message_bits) != len(public_key_h):
         raise ValueError("Message length must match key length (N_BITS).")
-        
     ciphertext = 0
-    
-    # Summation: ciphertext = sum(h_i * m_i)
     for h_i, m_i in zip(public_key_h, message_bits):
         ciphertext += h_i * m_i
-    
     return ciphertext
 
+def encrypt(plaintext, public_key_h):
+    block_size_chars = N_BITS // 8
+    text_blocks = split_text_into_blocks(plaintext, block_size_chars)
+    ciphertext_blocks = []
+    for block in text_blocks:
+        message_bits = text_to_bits(block, N_BITS)
+        ciphertext = encrypt_block(message_bits, public_key_h)
+        ciphertext_blocks.append(ciphertext)
+    return ciphertext_blocks
 
-def decrypt(ciphertext, private_key):
-    """
-    Decrypts the ciphertext c using the private key (e, q, w).
-    """
+def decrypt_block(ciphertext, private_key):
     e = private_key['e']
     q = private_key['q']
     w = private_key['w']
     n = len(e)
-    
-    # 1. Compute w^-1 mod q
     w_inv = modular_inverse(w, q)
-    
-    # 2. Compute Intermediate Ciphertext c'
-    # c' = c * w^-1 mod q
     c_prime = (ciphertext * w_inv) % q
-    
-    # 3. Subset-Sum Decryption (Backwards check)
     decrypted_bits = [0] * n
     remaining_sum = c_prime
-    
-    # Iterate backwards from i = n-1 down to 0 (corresponding to e_n down to e_1)
-    # The property e_i > sum(e_j) ensures a unique solution is found.
     for i in range(n - 1, -1, -1):
         if remaining_sum >= e[i]:
             decrypted_bits[i] = 1
             remaining_sum -= e[i]
-            
-    # The list is built backwards relative to the index but needs to be in order for decoding
     return decrypted_bits
 
-# --- Main Execution and Testing ---
+def decrypt(ciphertext_blocks, private_key):
+    decrypted_blocks = []
+    for ciphertext in ciphertext_blocks:
+        decrypted_bits = decrypt_block(ciphertext, private_key)
+        decrypted_text = bits_to_text(decrypted_bits)
+        decrypted_blocks.append(decrypted_text)
+    return blocks_to_text(decrypted_blocks)
 
-def run_test_case(case_number, plaintext):
-    """Runs a single test case and prints results for the report."""
-    print(f"\n{'='*50}\n### Test Case {case_number} (N={N_BITS}) ###")
-    
-    # 1. Key Generation
-    h_public, key_private = generate_key_pair(N_BITS)
-    
-    e = key_private['e']
-    q = key_private['q']
-    
-    print(f"Key Length (N): {N_BITS} bits")
-    print(f"Modulus (q) size: {q.bit_length()} bits")
-    print(f"e_1: {e[0]}, e_n: {e[-1]}")
-    print(f"q: {q}")
-    print(f"w: {key_private['w']}")
-    print(f"h (first 3 elements): {h_public[:3]}")
+#Interactive Interface
 
-    # 2. Convert plaintext to a bit vector
-    message_m = text_to_bits(plaintext)
-    
-    # 3. Encryption
-    c_ciphertext = encrypt(message_m, h_public)
-    
-    print("\n--- Encryption & Decryption ---")
-    print(f"Plaintext (Start): {plaintext[:40]}...")
-    print(f"Ciphertext (c): {c_ciphertext}")
-    
-    # 4. Decryption
-    m_decrypted = decrypt(c_ciphertext, key_private)
-    
-    # 5. Convert back to text
-    decrypted_text = bits_to_text(m_decrypted)
-    
-    # 6. Verification
-    original_text_part = plaintext[:len(decrypted_text)].strip()
-    decrypted_text_part = decrypted_text.strip()
-    
-    if original_text_part == decrypted_text_part:
-        print(f"\nVerification: SUCCESS (Decrypted text matches original text)")
-    else:
-        print(f"\nVerification: FAILURE")
+def display_menu():
+    print("\n" + "="*60)
+    print("   ALTERNATIVE PUBLIC-KEY ENCRYPTION SYSTEM")
+    print("="*60)
+    print("1. Generate New Key Pair")
+    print("2. Encrypt Message (requires plaintext + public key)")
+    print("3. Decrypt Ciphertext (requires ciphertext + private key)")
+    print("4. Run Automated Tests")
+    print("5. Exit")
+    print("="*60)
+
+def get_user_choice():
+    while True:
+        try:
+            choice = input("\nEnter your choice (1-5): ").strip()
+            if choice in ['1', '2', '3', '4', '5']:
+                return choice
+            else:
+                print("Invalid choice. Please enter a number between 1 and 5.")
+        except Exception as e:
+            print(f"Error: {e}. Please try again.")
+
+def input_public_key():
+    """Prompts user to input the public key (hard key h)."""
+    print("\n--- Input Public Key (Hard Key h) ---")
+    print(f"Enter {N_BITS} comma-separated integers for the public key h:")
+    print("Example: 123456, 789012, 345678, ...")
+    try:
+        h_input = input("Public Key h: ").strip()
+        h = [int(x.strip()) for x in h_input.split(',')]
+        if len(h) != N_BITS:
+            print(f"Error: Public key must have exactly {N_BITS} elements. You entered {len(h)}.")
+            return None
+        print(f"Public key loaded successfully ({len(h)} elements).")
+        return h
+    except ValueError:
+        print("Invalid input. Please enter comma-separated integers.")
+        return None
+
+def input_private_key():
+    """Prompts user to input the private key (e, q, w)."""
+    print("\n--- Input Private Key ---")
+    try:
+        # Input Easy Key (e)
+        print(f"\nEnter the Easy Key (e) - {N_BITS} comma-separated integers:")
+        print("Example: 1048576, 2202214, 4653851, ...")
+        e_input = input("Easy Key e: ").strip()
+        e = [int(x.strip()) for x in e_input.split(',')]
+        if len(e) != N_BITS:
+            print(f"Error: Easy key must have exactly {N_BITS} elements. You entered {len(e)}.")
+            return None
         
-    print(f"Decrypted Text (Start): {decrypted_text_part[:40]}...")
-    
-    # Print examples for report (using first few characters)
-    print("\n--- Report Examples ---")
-    print(f"Original Char: '{plaintext[0]}', Cipher Char (first part): '{str(c_ciphertext)[:10]}'")
+        # Input Modulus (q)
+        print("\nEnter the Modulus (q) - a single large prime number:")
+        q_input = input("Modulus q: ").strip()
+        q = int(q_input)
+        
+        # Input Multiplier (w)
+        print("\nEnter the Multiplier (w) - a single integer:")
+        w_input = input("Multiplier w: ").strip()
+        w = int(w_input)
+        
+        private_key = {'e': e, 'q': q, 'w': w}
+        print(f"\nPrivate key loaded successfully!")
+        print(f"  - Easy key (e): {len(e)} elements")
+        print(f"  - Modulus (q): {q}")
+        print(f"  - Multiplier (w): {w}")
+        return private_key
+    except ValueError:
+        print("Invalid input. Please enter valid integers.")
+        return None
 
+def interactive_mode():
+    """Runs the interactive user interface."""
+    # Store last generated keys for display purposes only
+    last_generated_public = None
+    last_generated_private = None
+    
+    while True:
+        display_menu()
+        choice = get_user_choice()
+        
+        if choice == '1':
+            # Generate Key Pair
+            print("\n--- Generating New Key Pair ---")
+            last_generated_public, last_generated_private = generate_key_pair(N_BITS)
+            
+            print(f"\nKey pair generated successfully!")
+            print(f"Key Length (N): {N_BITS} bits ({N_BITS // 8} characters per block)")
+            
+            print(f"\n{'='*50}")
+            print("PUBLIC KEY (share this for encryption):")
+            print(f"{'='*50}")
+            print(f"Hard Key (h) - {N_BITS} elements:")
+            print(','.join(map(str, last_generated_public)))
+            
+            print(f"\n{'='*50}")
+            print("PRIVATE KEY (keep this secret for decryption):")
+            print(f"{'='*50}")
+            print(f"\nEasy Key (e) - {N_BITS} elements:")
+            print(','.join(map(str, last_generated_private['e'])))
+            print(f"\nModulus (q): {last_generated_private['q']}")
+            print(f"Multiplier (w): {last_generated_private['w']}")
+            
+            print(f"\n{'='*50}")
+            print("SAVE THESE KEYS! You will need to input them for encryption/decryption.")
+            print(f"{'='*50}")
+            
+        elif choice == '2':
+            # Encrypt - User must input plaintext AND public key
+            print("\n" + "="*50)
+            print("ENCRYPTION")
+            print("="*50)
+            
+            # Get public key from user
+            public_key = input_public_key()
+            if public_key is None:
+                continue
+            
+            # Get plaintext from user
+            chars_per_block = N_BITS // 8
+            print(f"\nBlock size: {chars_per_block} characters per block")
+            print(f"Messages longer than {chars_per_block} characters will be split into multiple blocks")
+            plaintext = input("\nEnter your message to encrypt: ")
+            
+            if len(plaintext) == 0:
+                print("Empty message. Please enter some text.")
+                continue
+            
+            # Encrypt
+            ciphertext_blocks = encrypt(plaintext, public_key)
+            
+            print(f"\n{'='*50}")
+            print("ENCRYPTION SUCCESSFUL!")
+            print(f"{'='*50}")
+            print(f"Plaintext: {plaintext}")
+            print(f"Plaintext length: {len(plaintext)} characters")
+            print(f"Number of blocks: {len(ciphertext_blocks)}")
+            print(f"\nCiphertext blocks (copy these for decryption):")
+            print(','.join(map(str, ciphertext_blocks)))
+            
+        elif choice == '3':
+            # Decrypt - User must input ciphertext AND private key
+            print("\n" + "="*50)
+            print("DECRYPTION")
+            print("="*50)
+            
+            # Get private key from user
+            private_key = input_private_key()
+            if private_key is None:
+                continue
+            
+            # Get ciphertext from user
+            print("\n--- Input Ciphertext ---")
+            print("Enter ciphertext blocks as comma-separated integers:")
+            print("Example: 1234567890, 9876543210, 5555555555")
+            try:
+                ciphertext_input = input("Ciphertext blocks: ").strip()
+                ciphertext_blocks = [int(x.strip()) for x in ciphertext_input.split(',')]
+                
+                # Decrypt
+                decrypted_text = decrypt(ciphertext_blocks, private_key)
+                
+                print(f"\n{'='*50}")
+                print("DECRYPTION SUCCESSFUL!")
+                print(f"{'='*50}")
+                print(f"Number of ciphertext blocks: {len(ciphertext_blocks)}")
+                print(f"Decrypted message: {decrypted_text}")
+                
+            except ValueError:
+                print("Invalid input. Please enter comma-separated integers.")
+            except Exception as e:
+                print(f"Decryption error: {e}")
+                
+        elif choice == '4':
+            # Run Tests
+            print("\n--- Running Automated Tests ---")
+            run_automated_tests()
+            
+        elif choice == '5':
+            print("\nGoodbye!")
+            sys.exit(0)
+
+#Automated Testing
+
+def run_automated_tests():
+    PLAINTEXT_LONG = """To Amir: This is a demonstration of the alternative public-key encryption method proposed by a recent PhD student. The system uses a super-increasing sequence as the easy key, which allows for efficient decryption through a greedy algorithm. Bob generates a random super-increasing sequence e where each element is greater than the sum of all previous elements. He then selects a prime modulus q that exceeds twice the largest element in the sequence. Using a random multiplier w that is coprime to q, Bob computes the hard key h by multiplying each element of e by w modulo q. The hard key h becomes the public key, while the easy key e, along with q and w, form the private key. To encrypt a message, Alice computes a weighted sum of the public key elements, where the weights are the individual bits of her message. Bob decrypts by first computing the modular inverse of w, then applying it to the ciphertext to recover an intermediate value. The super-increasing property of the easy key allows Bob to recover each message bit through a simple greedy algorithm working backwards from the largest element."""
+    
+    print(f"Test plaintext length: {len(PLAINTEXT_LONG)} characters")
+    
+    # Test Case 1
+    print("\n" + "="*60)
+    print("TEST CASE 1")
+    print("="*60)
+    
+    h1, priv1 = generate_key_pair(N_BITS)
+    print(f"\nKey Length: {N_BITS} bits ({N_BITS // 8} chars/block)")
+    print(f"Modulus (q): {priv1['q']} ({priv1['q'].bit_length()} bits)")
+    print(f"Multiplier (w): {priv1['w']}")
+    print(f"Easy Key (e) [first 3]: {priv1['e'][:3]}")
+    print(f"Hard Key (h) [first 3]: {h1[:3]}")
+    
+    c1 = encrypt(PLAINTEXT_LONG, h1)
+    print(f"\nPlaintext length: {len(PLAINTEXT_LONG)} characters")
+    print(f"Number of ciphertext blocks: {len(c1)}")
+    print(f"Ciphertext blocks: {c1}")
+    
+    d1 = decrypt(c1, priv1)
+    print(f"\nDecrypted text: {d1}")
+    
+    if d1.strip() == PLAINTEXT_LONG.strip():
+        print("\nTEST 1 PASSED - Full message decrypted correctly")
+    else:
+        print("\nTEST 1 FAILED")
+    
+    # Test Case 2
+    print("\n" + "="*60)
+    print("TEST CASE 2")
+    print("="*60)
+    
+    h2, priv2 = generate_key_pair(N_BITS)
+    print(f"\nKey Length: {N_BITS} bits ({N_BITS // 8} chars/block)")
+    print(f"Modulus (q): {priv2['q']} ({priv2['q'].bit_length()} bits)")
+    print(f"Multiplier (w): {priv2['w']}")
+    print(f"Easy Key (e) [first 3]: {priv2['e'][:3]}")
+    print(f"Hard Key (h) [first 3]: {h2[:3]}")
+    
+    c2 = encrypt(PLAINTEXT_LONG, h2)
+    print(f"\nPlaintext length: {len(PLAINTEXT_LONG)} characters")
+    print(f"Number of ciphertext blocks: {len(c2)}")
+    print(f"Ciphertext blocks: {c2}")
+    
+    d2 = decrypt(c2, priv2)
+    print(f"\nDecrypted text: {d2}")
+    
+    if d2.strip() == PLAINTEXT_LONG.strip():
+        print("\nTEST 2 PASSED - Full message decrypted correctly")
+    else:
+        print("\nTEST 2 FAILED")
+    
+    print("\n" + "="*60)
+    print("Automated testing completed")
+    print("="*60)
+
+#Main Program
 
 if __name__ == '__main__':
+    print("\nAlternative Public-Key Encryption System")
+    print(f"Using N={N_BITS} bits per block ({N_BITS // 8} characters per block)")
+    print("Long messages are automatically split into multiple blocks.")
     
-    # 1. Define the mandatory test plaintext (must be >= 500 chars)
-    # REPLACE [Your Name] and ensure length > 500 characters.
-    PLAINTEXT_LONG = """
-hello i am batman. my real name is bruce wayne. i live in gotham city and fight crime at night. my parents were killed when i was a child, which led me to take on the mantle of batman. i have no superpowers, but i use my intelligence, detective skills, and physical prowess to combat villains like the joker, the riddler, and two-face. i also have a vast array of gadgets and vehicles at my disposal, including the batmobile and batarangs. during the day, i run wayne enterprises, a large corporation that helps fund my crime-fighting activities. my trusted allies include alfred pennyworth, my loyal butler; robin, my sidekick; and commissioner gordon, who provides me with information from the police department. together, we work to keep gotham city safe from the forces of evil."""
-
-    # Ensure the plaintext meets the minimum length requirement
-    if len(PLAINTEXT_LONG) < 500:
-        print("CRITICAL ERROR: PLAINTEXT is less than 500 characters. Please extend it.")
-        sys.exit(1)
-        
-    # Run Test Case 1
-    run_test_case(1, PLAINTEXT_LONG)
-
-    # Run Test Case 2 (requires new key generation)
-    run_test_case(2, PLAINTEXT_LONG)
+    if len(sys.argv) > 1 and sys.argv[1] == '--test':
+        run_automated_tests()
+    else:
+        interactive_mode()
